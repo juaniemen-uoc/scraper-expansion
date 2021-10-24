@@ -5,7 +5,7 @@ import requests
 import sys
 import time
  
-class GeneralScrapper():
+class GeneralScraper():
 
     def __init__(self, index_url="", resource_url=""):
         self._index_url = index_url
@@ -61,24 +61,28 @@ class GeneralScrapper():
     def clear_visited_urls(self):
         self._visited_urls = []
 
+    def resource_tokens(self):
+        [dt[0] for dt in self.data_from_source() if not dt[0].startswith("ORIGEN")]
+
     # END Getters / Setters
 
     def get_data_raw(self):
         self.clear_visited_urls()
         self.set_data_from_source(   self.get_data_aux( [ self.index_url() + self.resource_url()], []) )
 
-    def get_data_aux(self, missing, acum):
-        missing = missing
+    def get_data_aux(self, pending, acum):
+        pending = pending
 
         # Caso base: no quedan urls pendientes de explorar (VISITED_URLS está vacio)
-        if len(self.visited_urls()) != 0 and len(missing) == 0:
+        if len(self.visited_urls()) != 0 and len(pending) == 0:
             return acum
         else:
-            current_url = missing.pop(0)
+            current_url = pending.pop(0)
 
         # Caso recursivo: SKIP - la url que hemos obtenido de PENDIENTES ya ha sido explorada (VISITED_URLS)
+        # Pasa algunas veces que la web nos manda a la misma página pudiendose crear un bucle infinito
         if current_url in self.visited_urls():
-            return self.get_data_aux(missing, acum)
+            return self.get_data_aux(pending, acum)
         else:
             self.add_visited_url(current_url)
 
@@ -93,7 +97,8 @@ class GeneralScrapper():
             headers = table_sch.thead
 
             # Si las cabeceras están vacías rellenemoslas, si no, comprobemos que las cabeceras del paso actual, sean iguales a las anteriores
-            # por el contrario, SKIP (no queremos tantas magnitudes diferentes en nuestros datos)
+            # por el contrario, SKIP
+            # Una vez definidas las cabeceras que tendrá nuestra tabla desechamos los datos con cabeceras distintas (solo mergeamos dos tipos de tablas, no tenemos en cuenta más niveles)
             possible_header = [td.string for td in headers.tr.find_all('th')]
 
             # Fill header, si no contienen datos rellenemoslo
@@ -103,7 +108,7 @@ class GeneralScrapper():
                 if self.header_origin() != possible_header:
                     self.set_header_data([td.string for td in headers.tr.find_all('th')])
             elif possible_header != self.header_origin() and possible_header != self.header_data():
-                return self.get_data_aux(missing, acum)
+                return self.get_data_aux(pending, acum)
 
 
 
@@ -111,34 +116,33 @@ class GeneralScrapper():
             for trs in table.find_all("tr"): 
                 if trs.td.a and trs.td.a["href"]:
                     ## Sometimes trs.td.a href is containing absolute path, sometimes relative so it's managed with "replace"
-                    missing.append(self.index_url() + trs.td.a["href"].replace(self.index_url(), ""))
+                    pending.append(self.index_url() + trs.td.a["href"].replace(self.index_url(), ""))
 
-                rows.append(self.tokenizing(current_url, missing) + [td.string for td in trs.find_all("td") if td.string])
+                rows.append(self.tokenizing(current_url, pending) + [td.string for td in trs.find_all("td") if td.string])
             
             footer = soup.find(class_= "tablefooter")
             if footer and footer.td and footer.td.span and footer.td.span.a:
-                missing.append(footer.td.span.a["href"])
+                pending.append(footer.td.span.a["href"])
 
             acum = rows + acum
-            if len(missing)==0:
+            if len(pending)==0:
                 return acum
             else:
-                return self.get_data_aux(missing, acum)
+                return self.get_data_aux(pending, acum)
 
         except Exception as e:
-            return self.get_data_aux(missing, acum)
+            return self.get_data_aux(pending, acum)
         
 
-    def tokenizing(self,current_url, missing):
+    def tokenizing(self,current_url, pending):
         if current_url == (self.index_url() + self.resource_url()):
-            return ["ORIGEN_" + missing[-1].split('/')[-1].split("?")[0]]
+            return ["ORIGEN_" + pending[-1].split('/')[-1].split("?")[0]]
         else:
             return [ current_url.split('/')[-1].split("?")[0]]
 
 
 
     def process_tidy_data(self):
-        breakpoint()
         origen_keys = filter(lambda y: y[0].startswith('ORIGEN'), self.data_from_source())
         keys = list(map(lambda x: x[0].replace("ORIGEN_", ""), origen_keys))
         
@@ -170,7 +174,7 @@ class GeneralScrapper():
     
     def data_to_csv(self, delimiter=";"):
         header = delimiter.join(self.final_header_ary())
-        np.savetxt('../' + self.resource_url()[1:].replace("/", "_") + '.csv', self.tidy_data(), delimiter=delimiter, fmt = '%s', header=header)
+        np.savetxt('../output/' + self.resource_url()[1:].replace("/", "_") + '.csv', self.tidy_data(), delimiter=delimiter, fmt = '%s', header=header)
 
     def final_header_ary(self):
         if self.header_origin() and self.header_data():
@@ -178,3 +182,8 @@ class GeneralScrapper():
         else:
             header_ary = self.header_origin()
         return header_ary
+
+    def scrape(self):
+        self.get_data_raw()
+        self.process_tidy_data()
+        self.data_to_csv()

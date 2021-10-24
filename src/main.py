@@ -1,8 +1,11 @@
-from general_scrapper import GeneralScrapper
+from general_scraper import GeneralScraper
+from imagenes_scraper import ImagenesScraper
 
-#nc = GeneralScrapper("https://datosmacro.expansion.com", "/energia/precios-gasolina-diesel-calefaccion")
-nc = GeneralScrapper("https://datosmacro.expansion.com", "/deuda")
+# Scrapper genérico
+gs = GeneralScraper("https://datosmacro.expansion.com", "/energia/precios-gasolina-diesel-calefaccion")
+gs.scrape()
 
-nc.get_data_raw()
-nc.process_tidy_data()
-nc.data_to_csv()
+
+# Scrapper de imágenes
+img_scraper = ImagenesScraper(include_list=gs.resource_tokens())
+img_scraper.get_images()
