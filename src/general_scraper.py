@@ -2,86 +2,95 @@
 from bs4 import BeautifulSoup
 import numpy as np
 import requests
-import sys
-import time
+import itertools
  
 class GeneralScraper():
 
     def __init__(self, index_url="", resource_url=""):
         self._index_url = index_url
         self._resource_url = resource_url
-        self._data_from_source = ""
+        self._data_from_source = []
         self._tidy_data = []
         self._header_origin = []
         self._header_data = []
         self._visited_urls = []
 
 
-    # Getters / Setters
-    
+    # Getters / Setters    
+
+    @property                
     def index_url(self):
         return self._index_url
-    
+
+    @property                
     def resource_url(self):
         return self._resource_url
 
+    @property            
     def data_from_source(self):
         return self._data_from_source
 
-    def tidy_data(self):
-        return self._tidy_data
-    
-    def visited_urls(self):
-        return self._visited_urls
-    
+    @property            
     def tidy_data(self):
         return self._tidy_data
 
+    @property                
+    def visited_urls(self):
+        return self._visited_urls
+
+    @property            
     def header_origin(self):
         return self._header_origin
 
+    @property            
     def header_data(self):
         return self._header_data
 
-    def set_data_from_source(self, data_from_source):
+    
+    @data_from_source.setter            
+    def data_from_source(self, data_from_source):
         self._data_from_source = data_from_source
-
-    def set_tidy_data(self, tidy_data):
+    
+    @tidy_data.setter        
+    def tidy_data(self, tidy_data):
         self._tidy_data = tidy_data
-
-    def set_header_origin(self, header):
+    
+    @header_origin.setter        
+    def header_origin(self, header):
         self._header_origin = header
-
-    def set_header_data(self, header):
+    
+    @header_data.setter        
+    def header_data(self, header):
         self._header_data = header
-
+        
+    # END Getters / Setters
+           
     def add_visited_url(self, url):
         self._visited_urls.append(url)
-        
+                  
     def clear_visited_urls(self):
         self._visited_urls = []
 
     def resource_tokens(self):
-        [dt[0] for dt in self.data_from_source() if not dt[0].startswith("ORIGEN")]
+        set([dt[0] for dt in self.data_from_source if not dt[0].startswith("ORIGEN")])
 
-    # END Getters / Setters
 
     def get_data_raw(self):
         self.clear_visited_urls()
-        self.set_data_from_source(   self.get_data_aux( [ self.index_url() + self.resource_url()], []) )
+        self.data_from_source =  self.get_data_aux( [ self.index_url + self.resource_url], [])
 
     def get_data_aux(self, pending, acum):
         pending = pending
 
         # Caso base: no quedan urls pendientes de explorar (VISITED_URLS está vacio)
-        if len(self.visited_urls()) != 0 and len(pending) == 0:
+        if len(self.visited_urls) != 0 and len(pending) == 0:
             return acum
         else:
             current_url = pending.pop(0)
 
         # Caso recursivo: SKIP - la url que hemos obtenido de PENDIENTES ya ha sido explorada (VISITED_URLS)
         # Pasa algunas veces que la web nos manda a la misma página pudiendose crear un bucle infinito
-        if current_url in self.visited_urls():
+        if current_url in self.visited_urls:
             return self.get_data_aux(pending, acum)
         else:
             self.add_visited_url(current_url)
@@ -102,12 +111,12 @@ class GeneralScraper():
             possible_header = [td.string for td in headers.tr.find_all('th')]
 
             # Fill header, si no contienen datos rellenemoslo
-            if not self.header_origin():
-                self.set_header_origin([td.string for td in headers.tr.find_all('th')])
-            elif not self.header_data():
-                if self.header_origin() != possible_header:
-                    self.set_header_data([td.string for td in headers.tr.find_all('th')])
-            elif possible_header != self.header_origin() and possible_header != self.header_data():
+            if not self.header_origin:
+                self.header_origin = [td.string for td in headers.tr.find_all('th')]
+            elif not self.header_data:
+                if self.header_origin != possible_header:
+                    self.header_data = [td.string for td in headers.tr.find_all('th')]
+            elif possible_header != self.header_origin and possible_header != self.header_data:
                 return self.get_data_aux(pending, acum)
 
 
@@ -116,7 +125,7 @@ class GeneralScraper():
             for trs in table.find_all("tr"): 
                 if trs.td.a and trs.td.a["href"]:
                     ## Sometimes trs.td.a href is containing absolute path, sometimes relative so it's managed with "replace"
-                    pending.append(self.index_url() + trs.td.a["href"].replace(self.index_url(), ""))
+                    pending.append(self.index_url + trs.td.a["href"].replace(self.index_url, ""))
 
                 rows.append(self.tokenizing(current_url, pending) + [td.string for td in trs.find_all("td") if td.string])
             
@@ -135,7 +144,7 @@ class GeneralScraper():
         
 
     def tokenizing(self,current_url, pending):
-        if current_url == (self.index_url() + self.resource_url()):
+        if current_url == (self.index_url + self.resource_url):
             return ["ORIGEN_" + pending[-1].split('/')[-1].split("?")[0]]
         else:
             return [ current_url.split('/')[-1].split("?")[0]]
@@ -143,12 +152,12 @@ class GeneralScraper():
 
 
     def process_tidy_data(self):
-        origen_keys = filter(lambda y: y[0].startswith('ORIGEN'), self.data_from_source())
+        origen_keys = filter(lambda y: y[0].startswith('ORIGEN'), self.data_from_source)
         keys = list(map(lambda x: x[0].replace("ORIGEN_", ""), origen_keys))
         
         result = []
         for k in keys:
-            ocurrencias = list(filter(lambda y: y[0].replace('ORIGEN_', '') == k, self.data_from_source()))
+            ocurrencias = list(filter(lambda y: y[0].replace('ORIGEN_', '') == k, self.data_from_source))
             if len(ocurrencias) == 1:
                 first_dat = ocurrencias[0]
                 first_dat[1] = first_dat[1].replace(" [+]", "")
@@ -159,7 +168,7 @@ class GeneralScraper():
                     result.append(first_dat[1:])
                 
             else:
-                first_dat = list(filter(lambda y: y[0] == ('ORIGEN_'+k), self.data_from_source()))
+                first_dat = list(filter(lambda y: y[0] == ('ORIGEN_'+k), self.data_from_source))
                 index_descr = first_dat[0][1].replace(" [+]", "")
                 for row in ocurrencias:
                     if row[0].startswith("ORIGEN"):
@@ -169,18 +178,20 @@ class GeneralScraper():
                         continue
                     else:
                         result.append(row)
+        
+        
+        self.tidy_data = [i for i, _ in itertools.groupby(result)]
 
-        self.set_tidy_data(result)
-    
     def data_to_csv(self, delimiter=";"):
         header = delimiter.join(self.final_header_ary())
-        np.savetxt('../output/' + self.resource_url()[1:].replace("/", "_") + '.csv', self.tidy_data(), delimiter=delimiter, fmt = '%s', header=header)
+        output_path = '../output/csv/' + self.resource_url[1:].replace("/", "_") + '.csv'
+        np.savetxt(output_path, self.tidy_data, delimiter=delimiter, fmt = '%s', header=header)
 
     def final_header_ary(self):
-        if self.header_origin() and self.header_data():
-            header_ary = [self.header_origin()[0]] + self.header_data()
+        if self.header_origin and self.header_data:
+            header_ary = [self.header_origin[0]] + self.header_data
         else:
-            header_ary = self.header_origin()
+            header_ary = self.header_origin
         return header_ary
 
     def scrape(self):
