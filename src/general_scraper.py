@@ -2,9 +2,15 @@
 from bs4 import BeautifulSoup
 import numpy as np
 import requests
-import itertools
+# Como se han realizado muchas pruebas, se han realizado muchas peticiones. Para reducir el número y agilizar en sucesivas
+# pruebas se usa requests_cache, que almacena las peticiones (por un dia por defecto) en una base de datos sqlite, en caso
+# de que esté en tiempo de vida se recupera lo cacheado, por el contrario se hace la petición.
+import requests_cache
+
+
  
 class GeneralScraper():
+    
 
     def __init__(self, index_url="", resource_url=""):
         self._index_url = index_url
@@ -14,6 +20,8 @@ class GeneralScraper():
         self._header_origin = []
         self._header_data = []
         self._visited_urls = []
+        # Por defecto expira en 1 día, incluir el siguiente parametro si se desea cambiar expire_after=timedelta(days=1)
+        self._session = requests_cache.CachedSession('requests_cache')
 
 
     # Getters / Setters    
@@ -46,6 +54,9 @@ class GeneralScraper():
     def header_data(self):
         return self._header_data
 
+    @property            
+    def session(self):
+        return self._session
     
     @data_from_source.setter            
     def data_from_source(self, data_from_source):
@@ -71,10 +82,6 @@ class GeneralScraper():
     def clear_visited_urls(self):
         self._visited_urls = []
 
-    def resource_tokens(self):
-        set([dt[0] for dt in self.data_from_source if not dt[0].startswith("ORIGEN")])
-
-
     def get_data_raw(self):
         self.clear_visited_urls()
         self.data_from_source =  self.get_data_aux( [ self.index_url + self.resource_url], [])
@@ -96,8 +103,7 @@ class GeneralScraper():
             self.add_visited_url(current_url)
 
         try:
-            page = requests.get(current_url, timeout=10) # 10 seconds
-
+            page = self._session.get(current_url, timeout=10) # 10 seconds
             soup = BeautifulSoup(page.content, features="lxml")
             
             
@@ -150,11 +156,10 @@ class GeneralScraper():
             return [ current_url.split('/')[-1].split("?")[0]]
 
 
-
+    
     def process_tidy_data(self):
         origen_keys = filter(lambda y: y[0].startswith('ORIGEN'), self.data_from_source)
         keys = list(map(lambda x: x[0].replace("ORIGEN_", ""), origen_keys))
-        
         result = []
         for k in keys:
             ocurrencias = list(filter(lambda y: y[0].replace('ORIGEN_', '') == k, self.data_from_source))
@@ -179,8 +184,12 @@ class GeneralScraper():
                     else:
                         result.append(row)
         
-        
-        self.tidy_data = [i for i, _ in itertools.groupby(result)]
+        # Remove duplication
+        dup_free = []
+        for i in result:
+            if i not in dup_free:
+                dup_free.append(i)
+        self.tidy_data = dup_free
 
     def data_to_csv(self, delimiter=";"):
         header = delimiter.join(self.final_header_ary())
@@ -194,7 +203,13 @@ class GeneralScraper():
             header_ary = self.header_origin
         return header_ary
 
+    def resource_tokens(self):
+        origen_keys = filter(lambda y: y[0].startswith('ORIGEN'), self.data_from_source)
+        keys = list(map(lambda x: x[0].replace("ORIGEN_", ""), origen_keys))
+        return list(set(keys))
+
     def scrape(self):
         self.get_data_raw()
         self.process_tidy_data()
         self.data_to_csv()
+

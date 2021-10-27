@@ -1,13 +1,14 @@
 from bs4 import BeautifulSoup
 import requests
 import shutil
+import os.path
  
 class ImagenesScraper():
 
-    def __init__(self, include_list=[]):
+    def __init__(self, include_lst):
         self._index_url="https://datosmacro.expansion.com"
         self._resource_url="/paises"
-        self._include_list = include_list
+        self._include_list = include_lst
 
 
     @property
@@ -34,10 +35,9 @@ class ImagenesScraper():
             parent_div = soup.find(class_='flags')
 
             a_items = parent_div.find_all("a")
-
+            breakpoint()
             for a in a_items:
                 file_name = a["href"].split("/")[-1]
-
                 if self.include_list and file_name not in self.include_list:
                     continue
                 else:
@@ -48,8 +48,13 @@ class ImagenesScraper():
 
 
     def download_and_save(self, url, file_name):
-        res = requests.get(url, stream = True)
+        # Si ya está descargada, no la bajamos de nuevo
         output = self.output_path + file_name + ".png"
+        if os.path.isfile(output):
+            print('Image was already downloaded: ',file_name)
+            return
+
+        res = requests.get(url, stream = True)
 
         if res.status_code == 200:
             with open(output,'wb') as f:

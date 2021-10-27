@@ -7,5 +7,6 @@ gs.scrape()
 
 
 # Scrapper de imágenes
-img_scraper = ImagenesScraper(include_list=gs.resource_tokens())
+breakpoint()
+img_scraper = ImagenesScraper(gs.resource_tokens())
 img_scraper.get_images()
