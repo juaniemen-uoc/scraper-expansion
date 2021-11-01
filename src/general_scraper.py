@@ -6,13 +6,15 @@ import requests
 # pruebas se usa requests_cache, que almacena las peticiones (por un dia por defecto) en una base de datos sqlite, en caso
 # de que esté en tiempo de vida se recupera lo cacheado, por el contrario se hace la petición.
 import requests_cache
+import random
+import time
 
 
  
 class GeneralScraper():
     
 
-    def __init__(self, index_url="", resource_url=""):
+    def __init__(self, index_url="", resource_url="", opts = {}):
         self._index_url = index_url
         self._resource_url = resource_url
         self._data_from_source = []
@@ -20,8 +22,16 @@ class GeneralScraper():
         self._header_origin = []
         self._header_data = []
         self._visited_urls = []
-        # Por defecto expira en 1 día, incluir el siguiente parametro si se desea cambiar expire_after=timedelta(days=1)
-        self._session = requests_cache.CachedSession('requests_cache')
+
+        headers = {'User-Agent': 'Mozilla/5.0', 'Accept-Encoding': 'gzip, deflate', 'Accept': '*/*', 'Connection': 'keep-alive'}
+
+        if opts["cache_expire_after"] == "no_cache":
+            headers.update({'Cache-Control': 'no-cache'})
+            self._session = requests.Session()
+        elif opts["cache_expire_after"]:
+            self._session = requests_cache.CachedSession('requests_cache', expire_after=opts["cache_expire_after"], headers=headers)
+        else:
+            self._session = requests_cache.CachedSession('requests_cache') # Por defecto expira en 1 día
 
 
     # Getters / Setters    
@@ -75,10 +85,12 @@ class GeneralScraper():
         self._header_data = header
         
     # END Getters / Setters
-           
+
+    # Añade una url (string) a la lista de urls visitadas       
     def add_visited_url(self, url):
         self._visited_urls.append(url)
-                  
+
+    # Limpia las URL visitadas              
     def clear_visited_urls(self):
         self._visited_urls = []
 
@@ -103,6 +115,13 @@ class GeneralScraper():
             self.add_visited_url(current_url)
 
         try:
+            # Número aleatorio de segundos de 0 a 3. Para que no haya una constante que detecte un posible sistema antihacking
+            # Se ha probado con más tiempo y el algoritmo tarda mucho tiempo en terminar.
+            # En la sesión de control se habla de tiempos exponenciales, esto aumentaría muchísimo el tiempo de ejecución
+            # ya que en para obtener el dataset se visitan 514 enlaces
+            tts = (random.random() * 3) # Time to sleep
+            time.sleep(tts)
+
             page = self._session.get(current_url, timeout=10) # 10 seconds
             soup = BeautifulSoup(page.content, features="lxml")
             
@@ -123,6 +142,7 @@ class GeneralScraper():
                 if self.header_origin != possible_header:
                     self.header_data = [td.string for td in headers.tr.find_all('th')]
             elif possible_header != self.header_origin and possible_header != self.header_data:
+                # Nos hemos encontrado otro tipo de tabla que difiere de las dos anteriores por tanto SKIP (caso recursivo)
                 return self.get_data_aux(pending, acum)
 
 
@@ -130,22 +150,32 @@ class GeneralScraper():
             rows = []
             for trs in table.find_all("tr"): 
                 if trs.td.a and trs.td.a["href"]:
-                    ## Sometimes trs.td.a href is containing absolute path, sometimes relative so it's managed with "replace"
+                    ## Algunas veces trs.td.a href contiene el path absoluto y otras el relativo por lo que eliminamos el dominio con "replace"
                     pending.append(self.index_url + trs.td.a["href"].replace(self.index_url, ""))
 
+                # La siguiente linea almacena cada array de td's con el token.
+                # Usamos un token para luego recostruir la tabla ej: "ORIGEN_espana" es padre de todas las "espana"
+                # Lo usamos en el método process_tidy_data
                 rows.append(self.tokenizing(current_url, pending) + [td.string for td in trs.find_all("td") if td.string])
             
+            # Una vez hemos iterado sobre los links de cada tr vemos si hay navegación en el footer y si es así lo añadimo al final de PENDIENTES
             footer = soup.find(class_= "tablefooter")
             if footer and footer.td and footer.td.span and footer.td.span.a:
                 pending.append(footer.td.span.a["href"])
-
+            
+            # En este momento actualizamos nuestro acum de nuestro algoritmo recursivo
             acum = rows + acum
+            # Si nuestro pending tiene longitud 0 entramos en caso base y devolvemos el acumulador
             if len(pending)==0:
                 return acum
             else:
+                # Si no, Caso recursivo con nuestra lista de pendientes y acumulador actualizados
                 return self.get_data_aux(pending, acum)
 
         except Exception as e:
+            # Si ocurre alguna excepción ie: timeout, la página nos devuelve 500, 404 o algo raro pasamos al
+            # siguiente caso recursivo nuestro algoritmo convergerá de todas formas puesto perderá urls de 
+            # PENDIENTES aunque no sume a ACUM
             return self.get_data_aux(pending, acum)
         
 
@@ -158,12 +188,15 @@ class GeneralScraper():
 
     
     def process_tidy_data(self):
+        # Obtenemos todos los tipos de tokens que tenemos, los vamos a iterar y a extraer la info
         origen_keys = filter(lambda y: y[0].startswith('ORIGEN'), self.data_from_source)
         keys = list(map(lambda x: x[0].replace("ORIGEN_", ""), origen_keys))
         result = []
         for k in keys:
             ocurrencias = list(filter(lambda y: y[0].replace('ORIGEN_', '') == k, self.data_from_source))
             if len(ocurrencias) == 1:
+                # En caso de que solo haya casos de tipo ORIGEN, solo hay un nivel por lo que cogeremos los datos
+                # completos de la row, con sus cabeceras (sin el token)
                 first_dat = ocurrencias[0]
                 first_dat[1] = first_dat[1].replace(" [+]", "")
 
@@ -173,6 +206,8 @@ class GeneralScraper():
                     result.append(first_dat[1:])
                 
             else:
+                # En caso de que haya dos niveles cogemos el primer dato de ORIGEN 
+                # y los datos de la segunda tabla para formar la row final
                 first_dat = list(filter(lambda y: y[0] == ('ORIGEN_'+k), self.data_from_source))
                 index_descr = first_dat[0][1].replace(" [+]", "")
                 for row in ocurrencias:
@@ -204,6 +239,7 @@ class GeneralScraper():
         return header_ary
 
     def resource_tokens(self):
+        # Devuelve el total de tokens contenidos en el csv
         origen_keys = filter(lambda y: y[0].startswith('ORIGEN'), self.data_from_source)
         keys = list(map(lambda x: x[0].replace("ORIGEN_", ""), origen_keys))
         return list(set(keys))

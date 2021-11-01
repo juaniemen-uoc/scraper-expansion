@@ -35,7 +35,6 @@ class ImagenesScraper():
             parent_div = soup.find(class_='flags')
 
             a_items = parent_div.find_all("a")
-            breakpoint()
             for a in a_items:
                 file_name = a["href"].split("/")[-1]
                 if self.include_list and file_name not in self.include_list:
