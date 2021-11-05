@@ -1,5 +1,5 @@
-# Título del proyecto:
-Evolución del Precio de los Derivados del Petróleo en Europa.
+# Título descriptivo del proyecto:
+Evolución de los precios de los hidrocarburos en Europa y Reino Unido desde Enero 2005 hasta la actualidad.
 
 # Integrantes:
   * Juan Francisco Nieto Mendoza
